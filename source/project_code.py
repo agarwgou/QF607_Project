@@ -1,4 +1,5 @@
 from .building_blocks import *
+from cvxopt import matrix, solvers
 
 class SmileAF:
     def __init__(self, strikes, vols, T):
@@ -18,8 +19,56 @@ class SmileAF:
         # ... YOUR CODE HERE ... to solve for self.cs and self.ps
         # ...
         
-        x = np.concatenate((self.cs, self.ps))
+        #x = np.concatenate((self.cs, self.ps))
+        # self.cs = [0.1 for i in range(self.N)]
+        # self.ps = [1/self.N for i in range(self.N)]
+
+        def kkt_solver(P, q, G, h, A, b):
+            n = P.size[0]  # Size of the variables vector
+            # Implement your custom KKT solver logic here
+            # For demonstration purposes, we simply return the identity matrix
+            return matrix(1.0, (n, n))  # Identity matrix as an example
+
+        # Provide the custom KKT solver to CVXOPT
+        solvers.options['kktsolver'] = kkt_solver
+
+        H = np.zeros((2*self.N -2 , 2*self.N -2 ))
+        H[self.N,self.N]=2/3
+        H[self.N,self.N+1]=1/6
+        for i in range(self.N + 1,2*self.N - 3):
+            H[i,i-1]=1/6
+            H[i,i]=2/3
+            H[i,i+1]=1/6
+        H[2*self.N-3,2*self.N-4]=1/6
+        H[2*self.N-3,2*self.N-3]=2/3
         
+        #print(H)
+        Q = 2 * H
+        p = np.zeros((2*self.N -2 , 1))
+        G = matrix([[-1.0, 0.0], [0.0, -1.0]])
+        h = matrix([0.0, 0.0])
+        A = matrix([1.0, 1.0], (1, 2))
+        b = matrix(1.0)
+        sol = solvers.qp(Q, p, G, h, A, b)
+
+        # H = np.random.rand(self.N, self.N)
+        # P = H  # Quadratic term in the objective function
+        # q = matrix(0.0, (self.N, 1))  # Linear term in the objective function
+        # G = matrix(0.0, (self.N, self.N))  # No inequality constraints
+        # h = matrix(0.0, (self.N, 1))  # No inequality constraints
+
+        # # Solve the QP to minimize the objective function
+        # sol = solvers.qp(P, q, G, h)
+
+        # Extract the optimal solution
+        optimal_solution = sol['x']
+        print(f'Optimal_solution: {optimal_solution}')
+        
+        # print(f'cs: {self.cs}')
+        # print(f'ps: {self.ps}')
+        #print(f'ks: {self.ks}')
+        #print(f'fwd: {self.fwd}')
+        #print(f'Strikes: {strikes}')
 
         # now we obtained cs and ps, we do not interpolate for price for any k and imply the vol,
         # since at the tails the price to vol gradient is too low and is numerically not stable.
@@ -35,7 +84,9 @@ class SmileAF:
             d2 = (math.log(self.fwd / k)) / stdev - 0.5 * stdev
             return self.fwd * cnorm(d1) - k * cnorm(d2) - prc
         khmin = bisect.bisect_left(self.ks, strikes[0])
+        print(f'khmin: {khmin}')
         khmax = bisect.bisect_right(self.ks, strikes[len(strikes)-1])
+        print(f'khmax: {khmax}')
         kks = [0] * ((khmax+1) - (khmin-1) + 2)
         vs = [0] * ((khmax+1) - (khmin-1) + 2)
         for i in range(khmin-1, khmax+1):
@@ -49,6 +100,8 @@ class SmileAF:
         kks[len(kks)-1] = kmax
         vs[len(vs)-1] = vs[len(vs)-2]
 
+        #print(f'kks: {kks}')
+        #print(f'vs: {vs}')
         self.vs = vs
         self.cubicVol = CubicSpline(kks, vs, bc_type=((1, 0.0), (1, 0.0)), extrapolate=True)
 
@@ -90,6 +143,7 @@ class SmileCubicSpline:
             return self.cs(k)
 
 def smileFromMarks(T, S, r, q, atmvol, bf25, rr25, bf10, rr10, smileInterpMethod):
+    print(f'T={T}')
     c25 = bf25 + atmvol + rr25/2
     p25 = bf25 + atmvol - rr25/2
     c10 = bf10 + atmvol + rr10/2
