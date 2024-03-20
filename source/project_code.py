@@ -23,33 +23,128 @@ class SmileAF:
         # self.cs = [0.1 for i in range(self.N)]
         # self.ps = [1/self.N for i in range(self.N)]
 
-        def kkt_solver(P, q, G, h, A, b):
-            n = P.size[0]  # Size of the variables vector
-            # Implement your custom KKT solver logic here
-            # For demonstration purposes, we simply return the identity matrix
-            return matrix(1.0, (n, n))  # Identity matrix as an example
+        # def kkt_solver(P, q, G, h, A, b):
+        #     n = P.size[0]  # Size of the variables vector
+        #     # Implement your custom KKT solver logic here
+        #     # For demonstration purposes, we simply return the identity matrix
+        #     return matrix(1.0, (n, n))  # Identity matrix as an example
 
-        # Provide the custom KKT solver to CVXOPT
-        solvers.options['kktsolver'] = kkt_solver
-
-        H = np.zeros((2*self.N -2 , 2*self.N -2 ))
-        H[self.N,self.N]=2/3
-        H[self.N,self.N+1]=1/6
-        for i in range(self.N + 1,2*self.N - 3):
-            H[i,i-1]=1/6
-            H[i,i]=2/3
-            H[i,i+1]=1/6
-        H[2*self.N-3,2*self.N-4]=1/6
-        H[2*self.N-3,2*self.N-3]=2/3
+        # # Provide the custom KKT solver to CVXOPT
+        # solvers.options['kktsolver'] = kkt_solver
         
-        #print(H)
-        Q = 2 * H
+        ### Constraint 1
+
+        ## Define R
+        R_v = np.zeros((self.N -2 , self.N -2 ))
+        R_v[0,0]=2/3
+        R_v[0,1]=1/6
+        for i in range(1,self.N - 3):
+            R_v[i,i-1]=1/6
+            R_v[i,i]=2/3
+            R_v[i,i+1]=1/6
+        R_v[self.N-3,self.N-4]=1/6
+        R_v[self.N-3,self.N-3]=2/3
+        R_v= self.u * self.u * R_v
+        print(f'R: {R_v}')
+
+        ## Define H
+        H_v = np.zeros((2*self.N -2 , 2*self.N -2 ))
+        H_v[self.N:,self.N:] = R_v
+        print(f'HH: {H_v}')
+        
+        ## Define Q
+        Q_v = np.zeros((self.N -2 , self.N ))
+        for i in range(0,self.N - 2):
+            Q_v[i,i]     = 1
+            Q_v[i,i+1]   = -2
+            Q_v[i,i+2]   = 1
+
+        print(f'Q_vv: {Q_v}')
+
+        ## Define A
+        A1_v = np.concatenate((Q_v, -R_v), axis=1)
+        b1_v = np.zeros((self.N -2 , 1))
+
+        print(A1_v)
+
+
+        ### Constraint 2
+
+        def striketoprice(j):
+            k= strikes[j]
+            v = vols[j]
+            stdev = v * math.sqrt(self.T)
+            d1 = (math.log(self.fwd / k)) / stdev + 0.5 * stdev
+            d2 = (math.log(self.fwd / k)) / stdev - 0.5 * stdev
+            return self.fwd * cnorm(d1) - k * cnorm(d2)
+        
+
+        A2_v = np.zeros((len(strikes),2*self.N - 2))
+        b2_v = np.zeros((len(strikes), 1))
+
+        for j in range(0,len(strikes)):
+            i = bisect.bisect_left(self.ks, strikes[j]) - 1
+            k_j = strikes[j]
+            k_i_1= self.ks[i+1]
+            a=(k_i_1-k_j)/self.u
+            b=1-a
+            A2_v[j,i] = a
+            A2_v[j,i+1] = b
+            A2_v[j,self.N -1 + i] = ((a*a*a)-a)*self.u*self.u/6
+            A2_v[j,self.N + i] = ((b*b*b)-b)*self.u*self.u/6
+            b2_v[j,0] = striketoprice(j)
+
+        ### Constraint 3
+
+        G3_v = np.zeros((self.N -2 , 2*self.N - 2 ))
+        for i in range(0,self.N -2):
+            G3_v[i,i+self.N] = -1
+        
+        h3_v = np.zeros((self.N -2,1))
+
+
+        ### Constraint 4
+
+        A4_v = np.zeros((1,2*self.N - 2))
+        for i in range(self.N,2*self.N -2):
+            A4_v[0,i]=self.u
+
+        b4_v = np.zeros((1 , 1))
+        b4_v[0,0]=1
+
+        ### Constraint 5
+        
+        A5_v = np.zeros((2,2*self.N - 2))
+        A5_v[0,0]=1
+        A5_v[1,self.N -1]=1
+
+        b5_v = np.zeros((2 , 1))
+        b5_v[0,0] = self.fwd - self.ks[0]
+        b5_v[1,0] = 0
+
+        ### Constraint 6
+
+        G6_v = np.zeros((self.N -1 , 2*self.N - 2 ))
+        for i in range(0,self.N -1):
+            G6_v[i,i] = -1
+            G6_v[i,i+1] = 1
+        
+        h6_v = np.zeros((self.N -1,1))
+
+
+        ## Optimization
+
+        Q = 2 * H_v
         p = np.zeros((2*self.N -2 , 1))
-        G = matrix([[-1.0, 0.0], [0.0, -1.0]])
-        h = matrix([0.0, 0.0])
-        A = matrix([1.0, 1.0], (1, 2))
-        b = matrix(1.0)
-        sol = solvers.qp(Q, p, G, h, A, b)
+        G = np.concatenate((G3_v, G6_v), axis=0)
+        h = np.concatenate((h3_v, h6_v), axis=0)
+        A = np.concatenate((A1_v, A2_v, A4_v, A5_v), axis=0)
+        b = np.concatenate((b1_v, b2_v, b4_v, b5_v), axis=0)
+
+        print(f'A: {A}')
+        print(f'b: {b}')
+
+        sol = solvers.qp(Q, p, G=G, h=h, A=A, b=b)
 
         # H = np.random.rand(self.N, self.N)
         # P = H  # Quadratic term in the objective function
