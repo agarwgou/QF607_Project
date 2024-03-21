@@ -59,8 +59,8 @@ class SmileAF:
 
         ## Define H
         H_v = np.zeros((2*self.N -2 , 2*self.N -2 ))
-        for i in range(0,self.N): ## temporarily setting diagnol terms to non-zero to make the matrix invertible
-            H_v[i,i] =  0.000005
+        # for i in range(0,self.N): ## temporarily setting diagnol terms to non-zero to make the matrix invertible
+        #     H_v[i,i] =  0.000005
         H_v[self.N:,self.N:] = R_v
         print(H_v.shape)
         print(f'HH: {H_v}')
