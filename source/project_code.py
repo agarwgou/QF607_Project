@@ -31,10 +31,19 @@ class SmileAF:
 
         # # Provide the custom KKT solver to CVXOPT
         # solvers.options['kktsolver'] = kkt_solver
-        
-        ### Constraint 1
+
+
+        ## Objective Function
 
         ## Define R
+
+        print(f'strike: {strikes}')
+        print(f'vols: {vols}')
+        print(f'u: {u}')
+        print(f'ks={self.ks}')
+        print(f'T={T}')
+        print(f'fwd={self.fwd}')
+
         R_v = np.zeros((self.N -2 , self.N -2 ))
         R_v[0,0]=2/3
         R_v[0,1]=1/6
@@ -45,12 +54,18 @@ class SmileAF:
         R_v[self.N-3,self.N-4]=1/6
         R_v[self.N-3,self.N-3]=2/3
         R_v= self.u * self.u * R_v
-        print(f'R: {R_v}')
+        print(R_v.shape)
+        print(f'R_v: {R_v}')
 
         ## Define H
         H_v = np.zeros((2*self.N -2 , 2*self.N -2 ))
+        for i in range(0,self.N): ## temporarily setting diagnol terms to non-zero to make the matrix invertible
+            H_v[i,i] =  0.000005
         H_v[self.N:,self.N:] = R_v
+        print(H_v.shape)
         print(f'HH: {H_v}')
+
+        ### Constraint 1
         
         ## Define Q
         Q_v = np.zeros((self.N -2 , self.N ))
@@ -59,13 +74,13 @@ class SmileAF:
             Q_v[i,i+1]   = -2
             Q_v[i,i+2]   = 1
 
-        print(f'Q_vv: {Q_v}')
+        #print(f'Q_vv: {Q_v}')
 
         ## Define A
         A1_v = np.concatenate((Q_v, -R_v), axis=1)
         b1_v = np.zeros((self.N -2 , 1))
 
-        print(A1_v)
+        #print(A1_v)
 
 
         ### Constraint 2
@@ -131,20 +146,19 @@ class SmileAF:
         
         h6_v = np.zeros((self.N -1,1))
 
-
         ## Optimization
 
-        Q = 2 * H_v
-        p = np.zeros((2*self.N -2 , 1))
-        G = np.concatenate((G3_v, G6_v), axis=0)
-        h = np.concatenate((h3_v, h6_v), axis=0)
-        A = np.concatenate((A1_v, A2_v, A4_v, A5_v), axis=0)
-        b = np.concatenate((b1_v, b2_v, b4_v, b5_v), axis=0)
+        Q = matrix(2 * H_v)
+        p = matrix(np.zeros(2*self.N -2)) ##np.zeros((2*self.N -2 , 1))
+        G = matrix(np.concatenate((G3_v, G6_v), axis=0))
+        h = matrix(np.concatenate((h3_v, h6_v), axis=0))
+        A = matrix(np.concatenate((A1_v, A2_v, A4_v, A5_v), axis=0))
+        b = matrix(np.concatenate((b1_v, b2_v, b4_v, b5_v), axis=0))
 
-        print(f'A: {A}')
-        print(f'b: {b}')
-
-        sol = solvers.qp(Q, p, G=G, h=h, A=A, b=b)
+        #test
+        #sol = solvers.qp(Q, p, G, h)
+        sol = solvers.qp(Q, p, G, h, A, b)
+      
 
         # H = np.random.rand(self.N, self.N)
         # P = H  # Quadratic term in the objective function
@@ -159,6 +173,12 @@ class SmileAF:
         optimal_solution = sol['x']
         print(f'Optimal_solution: {optimal_solution}')
         
+        print('Optimization Done')
+
+        optimal_solution_array = np.array(optimal_solution).T.flatten()
+        self.cs = optimal_solution_array[0:self.N]
+        self.ps[1:self.N -1] = optimal_solution_array[self.N:]
+
         # print(f'cs: {self.cs}')
         # print(f'ps: {self.ps}')
         #print(f'ks: {self.ks}')
@@ -186,6 +206,7 @@ class SmileAF:
         vs = [0] * ((khmax+1) - (khmin-1) + 2)
         for i in range(khmin-1, khmax+1):
             prc = self.Price(self.ks[i])
+            print(f'i: {i}, prc: {prc}')
             f = lambda v: implyVol(self.ks[i], prc, v)
             a, b = 1e-8, 10
             vs[i - (khmin-1) + 1] = optimize.brentq(f, a, b)
