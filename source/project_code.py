@@ -6,43 +6,60 @@ class SmileAF:
         self.atmvol = vols[int(len(vols)/2)]
         self.fwd = strikes[int(len(strikes)/2)]
         self.T = T
-        self.N = 50
+        self.N = 50  ## Set to 51 to test improbvement mentioned in section 5.1 of the Report
+        self.strikemarks=strikes
+        self.volmarks=vols
         stdev = self.atmvol * math.sqrt(T)
+
+        ## Setting Spread of the Strike Grid using normal method
         kmin = self.fwd * math.exp(-0.5*stdev*stdev-5 * stdev)
         kmax = self.fwd * math.exp(-0.5*stdev*stdev+5 * stdev)
+
+        ## Setting Spread of the Strike Grid in linear fasion ## used to test improvement mentioned in section 5.1 (1) of the Report
+        # kmin = self.fwd - (5*stdev)
+        # kmax = self.fwd + (5*stdev)
+
         u = (kmax - kmin) / (self.N - 1)
         self.ks = [kmin + u * i for i in range(0, self.N)]
+
+        ## The below section is to test improvement mentioned in section 5.1 (2)
+        ## Optimize Ks by minimizing sum of square distance between marks and naive strike grid ## 
+        # def ks_ssr(delta):
+        #     res = 0
+        #     for i in strikes:
+        #         s=0
+        #         for j in self.ks:
+        #             s = s + (j+delta-i)**2
+        #         if i == strikes[int(len(strikes)/2)]:
+        #             print("entering atm strike")
+        #             res = res + 4*s    ## To give 4 times weight to atm strike
+        #         else:
+        #             print("not entering atm strike")
+        #             res = res + s
+        #     return res
+        #
+        # result = optimize.minimize(ks_ssr,u, method='L-BFGS-B')
+        #
+        # self.ks = [i + result.x[0] for i in self.ks]
+
+
         self.cs = np.zeros(self.N)  # undiscounted call option prices
         self.ps = np.zeros(self.N)  # densities
         self.u = u
         # now we need to construct our constrained optimization problem to solve for cs and ps
         # ... YOUR CODE HERE ... to solve for self.cs and self.ps
         # ...
-        
-        #x = np.concatenate((self.cs, self.ps))
-        # self.cs = [0.1 for i in range(self.N)]
-        # self.ps = [1/self.N for i in range(self.N)]
-
-        # def kkt_solver(P, q, G, h, A, b):
-        #     n = P.size[0]  # Size of the variables vector
-        #     # Implement your custom KKT solver logic here
-        #     # For demonstration purposes, we simply return the identity matrix
-        #     return matrix(1.0, (n, n))  # Identity matrix as an example
-
-        # # Provide the custom KKT solver to CVXOPT
-        # solvers.options['kktsolver'] = kkt_solver
-
 
         ## Objective Function
 
         ## Define R
 
-        print(f'strike: {strikes}')
-        print(f'vols: {vols}')
-        print(f'u: {u}')
-        print(f'ks={self.ks}')
-        print(f'T={T}')
-        print(f'fwd={self.fwd}')
+        # print(f'strike: {strikes}')
+        # print(f'vols: {vols}')
+        # print(f'u: {u}')
+        # print(f'ks={self.ks}')
+        # print(f'T={T}')
+        # print(f'fwd={self.fwd}')
 
         R_v = np.zeros((self.N -2 , self.N -2 ))
         R_v[0,0]=2/3
@@ -54,16 +71,16 @@ class SmileAF:
         R_v[self.N-3,self.N-4]=1/6
         R_v[self.N-3,self.N-3]=2/3
         R_v= self.u * self.u * R_v
-        print(R_v.shape)
-        print(f'R_v: {R_v}')
+        #print(R_v.shape)
+        #print(f'R_v: {R_v}')
 
         ## Define H
         H_v = np.zeros((2*self.N -2 , 2*self.N -2 ))
         # for i in range(0,self.N): ## temporarily setting diagnol terms to non-zero to make the matrix invertible
         #     H_v[i,i] =  0.000005
         H_v[self.N:,self.N:] = R_v
-        print(H_v.shape)
-        print(f'HH: {H_v}')
+        #print(H_v.shape)
+        #print(f'HH: {H_v}')
 
         ### Constraint 1
         
@@ -171,13 +188,17 @@ class SmileAF:
 
         # Extract the optimal solution
         optimal_solution = sol['x']
-        print(f'Optimal_solution: {optimal_solution}')
+        # print(f'Optimal_solution: {optimal_solution}')
         
-        print('Optimization Done')
+        # print('Optimization Done')
 
         optimal_solution_array = np.array(optimal_solution).T.flatten()
         self.cs = optimal_solution_array[0:self.N]
         self.ps[1:self.N -1] = optimal_solution_array[self.N:]
+
+        # print(f'cs = {self.cs}')
+        # print(f'ps = {self.ps}')
+
 
         # print(f'cs: {self.cs}')
         # print(f'ps: {self.ps}')
@@ -199,14 +220,14 @@ class SmileAF:
             d2 = (math.log(self.fwd / k)) / stdev - 0.5 * stdev
             return self.fwd * cnorm(d1) - k * cnorm(d2) - prc
         khmin = bisect.bisect_left(self.ks, strikes[0])
-        print(f'khmin: {khmin}')
         khmax = bisect.bisect_right(self.ks, strikes[len(strikes)-1])
-        print(f'khmax: {khmax}')
+
+        ## Original Code with boundary of the wings set to same value and left to be interpolated using cubic smile
         kks = [0] * ((khmax+1) - (khmin-1) + 2)
         vs = [0] * ((khmax+1) - (khmin-1) + 2)
         for i in range(khmin-1, khmax+1):
             prc = self.Price(self.ks[i])
-            print(f'i: {i}, prc: {prc}')
+            #print(f'i: {i}, prc: {prc}')
             f = lambda v: implyVol(self.ks[i], prc, v)
             a, b = 1e-8, 10
             vs[i - (khmin-1) + 1] = optimize.brentq(f, a, b)
@@ -215,19 +236,89 @@ class SmileAF:
         vs[0] = vs[1]
         kks[len(kks)-1] = kmax
         vs[len(vs)-1] = vs[len(vs)-2]
+        self.kks=kks
 
-        #print(f'kks: {kks}')
-        #print(f'vs: {vs}')
+        # flat vol at wings
+        # kks = [0] * ((khmax+1) - (khmin-1))
+        # vs = [0] * ((khmax+1) - (khmin-1))
+        # for i in range(khmin-1, khmax+1):
+        #     prc = self.Price(self.ks[i])
+        #     # print(f'i: {i}, prc: {prc}')
+        #     f = lambda v: implyVol(self.ks[i], prc, v)
+        #     a, b = 1e-8, 10
+        #     vs[i - (khmin-1)] = optimize.brentq(f, a, b)
+        #     kks[i - (khmin-1)] = self.ks[i]
+        # self.kks=kks
+
+        ## wing fit by cubicpline
+        # khmin = 0
+        # print(f'khmin: {khmin}')
+        # khmax = len(self.ks)
+        # print(f'khmax: {khmax}')
+        # kks = [0] * (khmax - khmin)
+        # vs = [0] * (khmax - khmin)
+        # for i in range(khmin, khmax):
+        #     prc = self.Price(self.ks[i])
+        #     print(f'i: {i}, prc: {prc}')
+        #     f = lambda v: implyVol(self.ks[i], prc, v)
+        #     a, b = 1e-8, 10
+        #     vs[i] = optimize.brentq(f, a, b)
+        #     kks[i] = self.ks[i]
+        # self.kks=kks
+
         self.vs = vs
+        
+        ## Original
         self.cubicVol = CubicSpline(kks, vs, bc_type=((1, 0.0), (1, 0.0)), extrapolate=True)
 
+        ## For Linear Extrapolation
+        # self.cubicVol = CubicSpline(kks, vs, bc_type=((2, 0.0), (2, 0.0)), extrapolate=True)
+
     def Vol(self, k):
+
+        ##Original (Flat)
         if k < self.ks[0]:  # scipy cubicspline bc_type confusing, extrapolate by ourselfs
             return self.vs[0]
         if k > self.ks[-1]:
             return self.vs[-1]
         else:
             return self.cubicVol(k)
+
+        ##Improved (Flat)
+        # if k < self.kks[0]:
+        #     return self.vs[0]
+        # if k > self.kks[-1]:
+        #     return self.vs[-1]
+        # else:
+        #     return self.cubicVol(k)
+
+        ##Linear
+        # fdev_left = (self.vs[1]-self.vs[0])/(self.kks[1]-self.kks[0])
+        # fdev_right = (self.vs[-1]-self.vs[-2])/(self.kks[-1]-self.kks[-2])
+
+        # stdev = self.atmvol * math.sqrt(self.T)
+        # kmin = self.fwd * math.exp(-0.5*stdev*stdev-3 * stdev) ## used 3 std dev to divide the wing into 2 parts - one for linear extrapolation and other for flat
+        # kmax = self.fwd * math.exp(-0.5*stdev*stdev+3 * stdev)
+
+        # khmin = bisect.bisect_left(self.ks, kmin)
+        # khmax = bisect.bisect_right(self.ks, kmax)
+
+        # if k < self.ks[khmin]:
+        #     return self.vs[0] + fdev_left*(self.ks[khmin] - self.kks[0])
+            
+        # elif k < self.kks[0]:  # scipy cubicspline bc_type confusing, extrapolate by ourselfs
+        #     return self.vs[0] + fdev_left*(k - self.kks[0])
+
+        # elif k > self.ks[khmax]:
+        #     return self.vs[-1] + fdev_right*(self.ks[khmax] - self.kks[-1])
+
+        # elif k > self.kks[-1]:
+        #     return self.vs[-1] + fdev_right*(k-self.kks[-1])
+
+        # else:
+        #     return self.cubicVol(k)
+
+
 
     # undiscounted call price - given cs and ps,
     # we can obtain undiscounted call price for any k via cubic spline interpolation
@@ -259,7 +350,6 @@ class SmileCubicSpline:
             return self.cs(k)
 
 def smileFromMarks(T, S, r, q, atmvol, bf25, rr25, bf10, rr10, smileInterpMethod):
-    print(f'T={T}')
     c25 = bf25 + atmvol + rr25/2
     p25 = bf25 + atmvol - rr25/2
     c10 = bf10 + atmvol + rr10/2
